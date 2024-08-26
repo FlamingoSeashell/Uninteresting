@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <script src="https://unpkg.com/pdf-lib@1.11.0"></script>
+  <script src="https://unpkg.com/downloadjs@1.4.7"></script>
+</head>
+
+<body>
+  <h1>CoC Investigator Sheet PDF Converter</h1>
+  <p>Upload a CoC Investigator Sheet. Select the new format you want it in from the dropdown.</p>
+	<input type="file" id="fileInput" accept="application/pdf" />
+		<select id="formSelector">
+			<option value="form1">1920s Color</option>
+			<option value="form2">1920s Greyscale</option>
+			<option value="form3">Pulp Color</option>
+			<option value="form4">Pulp Greyscale</option>
+		</select>
+	<button id="fillFormButton">Convert PDF</button>
+  <p class="small">Your browser will download the converted sheet.</p>
+
+  <script>
+    const { PDFDocument } = PDFLib; //This defines what a PDF is. To do so, it uses the definitions set out by PDF-Lib.
+
+    async function fillForm() {
+	
+	//Which conversion option did you pick?
+      const formSelector = document.getElementById('formSelector');
+      const selectedForm = formSelector.value;
+
+    //Set the uploaded file.
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files.length) {
+        alert('Please upload a PDF file.');
+        return;
+      }
+
+      const uploadedFile = fileInput.files[0];
+      const uploadedPdfBytes = await uploadedFile.arrayBuffer();
+
+      // Load the user's file.
+      const uploadedPdfDoc = await PDFDocument.load(uploadedPdfBytes);
+      const uploadedForm = uploadedPdfDoc.getForm();
+
+      // Rip out all the form fields.
+      const fieldValues = {};
+      for (const field of uploadedForm.getFields()) {
+        const fieldName = field.getName();
+        try {
+          // Attempt to get the value regardless of field type
+          let value;
+          if (field instanceof PDFLib.PDFTextField) {
+            value = await field.getText();
+          } else if (field instanceof PDFLib.PDFCheckBox) {
+            value = await field.isChecked() ? 'Yes' : 'No';
+          } else if (field instanceof PDFLib.PDFRadioGroup) {
+            value = await field.getCheckedValue();
+          } else if (field instanceof PDFLib.PDFDropdown || field instanceof PDFLib.PDFOptionList) {
+            value = await field.getSelected();
+          } else {
+            value = 'Unsupported field type';
+          }
+          fieldValues[fieldName] = value;
+        } catch (error) {
+          console.log(`Error reading field "${fieldName}": ${error}`);
+          fieldValues[fieldName] = 'Error reading value';
+        }
+      }
+
+      console.log('Extracted field values:', fieldValues);
+
+      // List of all the possible output forms.
+      const formUrls = {
+        form1: 'https://www.chaosium.com/content/FreePDFs/CoC/Character%20Sheets/V2/CoC7%20PC%20Sheet%20-%20Auto-Fill%20-%201920s%20-%20Standard%20-%20Color.pdf',
+        form2: 'https://www.chaosium.com/content/FreePDFs/CoC/Character%20Sheets/V2/CoC7%20PC%20Sheet%20-%20Auto-Fill%20-%201920s%20-%20Standard%20-%20Greyscale.pdf',
+		form3: 'https://www.chaosium.com/content/FreePDFs/CoC/Character%20Sheets/V2/CoC7%20PC%20Sheet%20-%20Auto-Fill%20-%201930s%20Pulp%20-%20Standard%20-%20Color.pdf',
+		form4: 'https://www.chaosium.com/content/FreePDFs/CoC/Character%20Sheets/V2/CoC7%20PC%20Sheet%20-%20Auto-Fill%20-%201930s%20Pulp%20-%20Standard%20-%20Grayscale.pdf'
+      };
+
+      // Get the target PDF. This is whatever the user picked as the output.
+      const targetPdfUrl = formUrls[selectedForm];
+      const targetPdfBytes = await fetch(targetPdfUrl).then(res => res.arrayBuffer());
+
+      // Load the target PDF.
+      const targetPdfDoc = await PDFDocument.load(targetPdfBytes);
+      const targetForm = targetPdfDoc.getForm();
+
+      // Stick all the fields from the target PDF into the uploaded PDF.
+      for (const [fieldName, value] of Object.entries(fieldValues)) {
+        try {
+          const field = targetForm.getField(fieldName);
+          if (field) {
+            if (field instanceof PDFLib.PDFTextField) {
+              await field.setText(value);
+            } else if (field instanceof PDFLib.PDFCheckBox) {
+              if (value === 'Yes') {
+                await field.check();
+              } else {
+                await field.uncheck();
+              }
+            } else if (field instanceof PDFLib.PDFRadioGroup) {
+              await field.select(value);
+            } else if (field instanceof PDFLib.PDFDropdown || field instanceof PDFLib.PDFOptionList) {
+              await field.select(value);
+            } else {
+              console.log(`Field "${fieldName}" type not supported for setting value.`);
+            }
+          } else {
+            console.log(`Field "${fieldName}" not found in the target PDF.`);
+          }
+        } catch (error) {
+          console.log(`Error setting value for field "${fieldName}": ${error}`);
+        }
+      }
+
+      // Serialize the PDFDocument to bytes (a Uint8Array) - I can't remember why this is important but it is.
+      const pdfBytes = await targetPdfDoc.save();
+
+      // Trigger a download.
+      download(pdfBytes, "Converted PDF.pdf", "application/pdf");
+    }
+
+    // Code that breaks everything if you remove it.
+    document.getElementById('fillFormButton').addEventListener('click', fillForm);
+  </script>
+</body>
+</html>
